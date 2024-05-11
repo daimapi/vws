@@ -5,22 +5,27 @@
 #include <Adafruit_BMP280.h>
 #include "WiFi.h"
 #include "ThingSpeak.h"
+#include "time.h"
+#include <ESP32Time.h>
 //#include <SoftwareSerial.h> 
 //SoftwareSerial Serial1(2, 3); // 將Arduino Pin2設定為RX, Pin3設定為TX
+ESP32Time rtc;
 PMS pms(Serial2);
 PMS::DATA data;
 int ledpin = 2;
 Adafruit_BMP280 bmp;
 const char *ssid     = "omg u sus"; //ssid:網路名稱
 const char *password = "uc2s33tuc465zix"; //pasword：網路密碼
-int i = 0;
 
 WiFiClient client;
 #define CHANNEL_ID 2544455
 #define CHANNEL_WRITE_API_KEY "3ZEDL3WPV2JS3NNN"
+#define TIME1 28800  //second
+#define TIME2 50400 //second
+#define TIME3 72000 //second
+#define TIME4 7200  //second
 ///////////////////////////////////////////////////////
-void connectwifi()
-{
+void connectwifi(){
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
   WiFi.begin(ssid, password);
@@ -28,10 +33,6 @@ void connectwifi()
   
   while (WiFi.status() != WL_CONNECTED) {
     Serial.print(".");
-    digitalWrite(ledpin,HIGH);
-    delay(300);
-    digitalWrite(ledpin,LOW);
-    delay(300);
   }
 
   Serial.print("\nIP address: ");
@@ -41,8 +42,9 @@ void connectwifi()
   Serial.println("WiFi RSSI:");
   Serial.println(WiFi.RSSI());
 }
-void setup()
-{
+void setup(){
+  esp_sleep_wakeup_cause_t wakeup_reason;
+  wakeup_reason = esp_sleep_get_wakeup_cause();
   Serial.begin(9600);   
   Serial2.begin(9600);//for pms
   
@@ -54,39 +56,59 @@ void setup()
     Serial.println(F("Could not find a valid BMP280 sensor, check wiring or "
                       "try a different address!"));
     while (1) delay(10);
-  }else{
-    Serial.println("Good");
-  }
+  }else{Serial.println("Good");}
   bmp.setSampling(Adafruit_BMP280::MODE_FORCED,     /* Operating Mode. */
                 Adafruit_BMP280::SAMPLING_X1,     /* Temp. oversampling */
                 Adafruit_BMP280::SAMPLING_X1,    /* Pressure oversampling */
                 Adafruit_BMP280::FILTER_OFF,      /* Filtering. */
                 Adafruit_BMP280::STANDBY_MS_1); /* Standby time. */
-
-  pms.sleep();
+  
+  pms.wakeUp();
+  delay(30000);
+  
   connectwifi();
   ThingSpeak.begin(client);
-}
-void loop()
-{
-  if (Serial.available()>0 && Serial.read()=='1')
-  {
-    digitalWrite(ledpin,HIGH);
-    Serial.println("o");
-    BMPreq();
-    PMSreq();
-    ThingSpeak.setField(8, WiFi.RSSI());
+  Serial.println("o");
+  BMPreq();
+  PMSreq();
+  ThingSpeak.setField(8, WiFi.RSSI());
+  if (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER) {
     ThingSpeak.writeFields(CHANNEL_ID, CHANNEL_WRITE_API_KEY);
-    Serial.println("d");
-    digitalWrite(ledpin,LOW);
-  }
+    Serial.println("sent");
+    DateTime now = rtc.now();
+    if (now.hour() == 2) { NTPsync(); }
+  }else{ NTPsync(); }
+  Serial.println("d");
+  ESP.deepSleep(sleeptime());
 }
 
-void PMSreq()
-{
-  pms.wakeUp();
+void loop(){
+}
+
+int sleeptime(){
+  DateTime now = rtc.now();
+  nowt = mktime(&now);
+  int t1, t2, t3, t4, nowt;
+  t1 = TIME1 - nowt;
+  t2 = TIME2 - nowt;
+  t3 = TIME3 - nowt;
+  t4 = TIME4 - nowt;
+  if (t1 < 0) {t1 = t1 + 86400};
+  if (t2 < 0) {t2 = t2 + 86400};
+  if (t3 < 0) {t3 = t3 + 86400};
+  if (t4 < 0) {t4 = t4 + 86400};
+  int tarray[4] = {t1, t2, t3, t4};
+  int minVal = myArray[0];
+  for (int i = 0; i < (sizeof(tarray) / sizeof(tarray[0])); i++) {
+    minVal = min(tarray[i],minVal);
+  }
+  return minVal;
+}
+
+void PMSreq(){
+  //pms.wakeUp();
   
-  delay(30000);
+  //delay(30000);
   pms.requestRead();
   if (pms.readUntil(data))
   {
@@ -114,8 +136,7 @@ void PMSreq()
   pms.sleep();
 }
 
-void BMPreq()
-{
+void BMPreq(){
   if (bmp.takeForcedMeasurement()) {
     Serial.print(F("Temperature = "));
     Serial.print(bmp.readTemperature());
@@ -136,3 +157,17 @@ void BMPreq()
     Serial.println("Forced measurement failed!");
   }
 }
+
+void NTPsync() {
+  struct tm t;
+  configTime(9 * 3600L, 0, "time.stdtime.gov.tw", "time.google.com");
+  while (!getLocalTime(&t)) {
+    Serial.println("getLocalTime Error");
+    delay(500);
+  }
+  rtc.adjust(DateTime(t.tm_year + 1900, t.tm_mon + 1, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec));
+  Serial.println("NTPsynced");
+}
+
+
+
