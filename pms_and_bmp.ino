@@ -7,12 +7,10 @@
 #include "ThingSpeak.h"
 #include "time.h"
 #include <ESP32Time.h>
-//#include <SoftwareSerial.h> 
 //SoftwareSerial Serial1(2, 3); // 將Arduino Pin2設定為RX, Pin3設定為TX
 ESP32Time rtc;
 PMS pms(Serial2);
 PMS::DATA data;
-int ledpin = 2;
 Adafruit_BMP280 bmp;
 const char *ssid     = "omg u sus"; //ssid:網路名稱
 const char *password = "uc2s33tuc465zix"; //pasword：網路密碼
@@ -31,10 +29,12 @@ void connectwifi(){
   WiFi.begin(ssid, password);
   Serial.println(String("Connecting to ")+ssid);
   
-  while (WiFi.status() != WL_CONNECTED) {
+  int count = 0;
+  while (WiFi.status() != WL_CONNECTED && count < 30) {
     Serial.print(".");
+    count++;
   }
-
+  //how to sleep ???
   Serial.print("\nIP address: ");
   Serial.println(WiFi.localIP());
   Serial.println("WiFi status:");
@@ -42,6 +42,7 @@ void connectwifi(){
   Serial.println("WiFi RSSI:");
   Serial.println(WiFi.RSSI());
 }
+
 void setup(){
   esp_sleep_wakeup_cause_t wakeup_reason;
   wakeup_reason = esp_sleep_get_wakeup_cause();
@@ -50,18 +51,17 @@ void setup(){
   
   pms.passiveMode();
   
-  unsigned status;
-  status = bmp.begin(0x76);
+  unsigned status = bmp.begin(0x76);
   if (!status) {
     Serial.println(F("Could not find a valid BMP280 sensor, check wiring or "
                       "try a different address!"));
-    while (1) delay(10);
-  }else{Serial.println("Good");}
+    while (1) delay(10);}
+  else{Serial.println("Good");}
   bmp.setSampling(Adafruit_BMP280::MODE_FORCED,     /* Operating Mode. */
-                Adafruit_BMP280::SAMPLING_X1,     /* Temp. oversampling */
-                Adafruit_BMP280::SAMPLING_X1,    /* Pressure oversampling */
-                Adafruit_BMP280::FILTER_OFF,      /* Filtering. */
-                Adafruit_BMP280::STANDBY_MS_1); /* Standby time. */
+                  Adafruit_BMP280::SAMPLING_X1,     /* Temp. oversampling */
+                  Adafruit_BMP280::SAMPLING_X1,    /* Pressure oversampling */
+                  Adafruit_BMP280::FILTER_OFF,      /* Filtering. */
+                  Adafruit_BMP280::STANDBY_MS_1); /* Standby time. */
   
   pms.wakeUp();
   delay(30000);
@@ -72,33 +72,31 @@ void setup(){
   BMPreq();
   PMSreq();
   ThingSpeak.setField(8, WiFi.RSSI());
+
   if (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER) {
     ThingSpeak.writeFields(CHANNEL_ID, CHANNEL_WRITE_API_KEY);
     Serial.println("sent");
-    DateTime now = rtc.now();
-    if (now.hour() == 2) { NTPsync(); }
-  }else{ NTPsync(); }
+    if (rtc.getHour(true) == 2) { NTPsync(); } //sync every 02:00
+  }
+  else{ NTPsync(); }
+
   Serial.println("d");
   ESP.deepSleep(sleeptime());
 }
 
-void loop(){
-}
-
 int sleeptime(){
-  DateTime now = rtc.now();
-  nowt = mktime(&now);
-  int t1, t2, t3, t4, nowt;
-  t1 = TIME1 - nowt;
-  t2 = TIME2 - nowt;
-  t3 = TIME3 - nowt;
-  t4 = TIME4 - nowt;
-  if (t1 < 0) {t1 = t1 + 86400};
-  if (t2 < 0) {t2 = t2 + 86400};
-  if (t3 < 0) {t3 = t3 + 86400};
-  if (t4 < 0) {t4 = t4 + 86400};
+  struct tm now = rtc.getTimeStruct();
+  int nowt = now.tm_hour * 3600 + now.tm_min * 60 + now.tm_sec;
+  int t1 = TIME1 - nowt;
+  int t2 = TIME2 - nowt;
+  int t3 = TIME3 - nowt;
+  int t4 = TIME4 - nowt;
+  if (t1 < 0) {t1 = t1 + 86400; }
+  if (t2 < 0) {t2 = t2 + 86400; }
+  if (t3 < 0) {t3 = t3 + 86400; }
+  if (t4 < 0) {t4 = t4 + 86400; }
   int tarray[4] = {t1, t2, t3, t4};
-  int minVal = myArray[0];
+  int minVal = tarray[0];
   for (int i = 0; i < (sizeof(tarray) / sizeof(tarray[0])); i++) {
     minVal = min(tarray[i],minVal);
   }
@@ -158,15 +156,20 @@ void BMPreq(){
   }
 }
 
-void NTPsync() {
+void NTPsync(){
   struct tm t;
   configTime(9 * 3600L, 0, "time.stdtime.gov.tw", "time.google.com");
   while (!getLocalTime(&t)) {
     Serial.println("getLocalTime Error");
     delay(500);
   }
-  rtc.adjust(DateTime(t.tm_year + 1900, t.tm_mon + 1, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec));
-  Serial.println("NTPsynced");
+  rtc.setTimeStruct(t);
+  //rtc.adjust(DateTime(t.tm_year + 1900, t.tm_mon + 1, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec));
+  Serial.print("NTPsynced : ");
+  Serial.println(&t, "%A, %B %d %Y %H:%M:%S");
+}
+
+void loop(){
 }
 
 
