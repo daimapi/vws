@@ -18,47 +18,18 @@ const char *ssid = "omg u sus";           // ssid:網路名稱
 const char *password = "uc2s33tuc465zix"; // pasword：網路密碼
 #define CHANNEL_ID 2544455
 #define CHANNEL_WRITE_API_KEY "3ZEDL3WPV2JS3NNN"
-#define TIME1 28800 // second
-#define TIME2 50400 // second
-#define TIME3 72000 // second
-#define TIME4 7200  // second
+//const int time_array[] = {7200, 72000, 50400, 28800};
+const int time_array[] = {7200, 72000, 50400, 28800};
 ///////////////////////////////////////////////////////
-bool connectwifi()
-{
-  WiFi.mode(WIFI_STA);
-  WiFi.disconnect();
-  WiFi.begin(ssid, password);
-  Serial.println(String("Connecting to ") + ssid);
-
-  int count = 0;
-  while (WiFi.status() != WL_CONNECTED && count < 30)
-  {
-    Serial.print(".");
-    count++;
-  }
-  // how to sleep ???
-  if (WiFi.status() == WL_CONNECTED)
-  {
-    Serial.print("\nIP address: ");
-    Serial.println(WiFi.localIP());
-    Serial.println("WiFi status:");
-    WiFi.printDiag(Serial); // 顯示WiFi連線狀態資訊：工作模式、Channel、SSID、Passphrase、BSSID
-    Serial.println("WiFi RSSI:");
-    Serial.println(WiFi.RSSI());
-  }
-  else
-    Serial.println("connection failed")
-
-            return WiFi.status() == WL_CONNECTED
-}
-
 void setup()
 {
-  esp_sleep_wakeup_cause_t wakeup_reason;
-  wakeup_reason = esp_sleep_get_wakeup_cause();
   Serial.begin(9600);
   Serial2.begin(9600); // for pms
-
+  esp_sleep_wakeup_cause_t wakeup_reason;
+  wakeup_reason = esp_sleep_get_wakeup_cause();
+  Serial.print("hello");
+  Serial.println(wakeup_reason);
+  Serial.println(esp_reset_reason());
   pms.passiveMode();
 
   unsigned status = bmp.begin(0x76);
@@ -88,7 +59,7 @@ void setup()
   BMPreq();
   PMSreq();
   ThingSpeak.setField(8, WiFi.RSSI());
-
+  //ThingSpeak.writeFields(CHANNEL_ID, CHANNEL_WRITE_API_KEY);
   if (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER)
   {
     ThingSpeak.writeFields(CHANNEL_ID, CHANNEL_WRITE_API_KEY);
@@ -100,39 +71,68 @@ void setup()
     NTPsync();
 
   Serial.println("d");
-  ESP.deepSleep(sleeptime());
+  int sleep_time = sleeptime();
+  if (sleep_time == 0){
+    sleep_time++;
+  }
+  Serial.print("byebye for : ");
+  Serial.println(sleep_time);
+  Serial.end();
+  esp_sleep_enable_timer_wakeup(sleep_time * 1000000ULL);
+  esp_deep_sleep_start();
+  //ESP.deepSleep(sleep_time * 1000000);
+}
+
+void connectwifi()
+{
+  WiFi.mode(WIFI_STA);
+  WiFi.disconnect();
+  Serial.println(String("Connecting to ") + ssid);
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    Serial.print(".");
+  }
+  // how to sleep ???
+  if (WiFi.status() == WL_CONNECTED)
+  {
+    Serial.print("\nIP address: ");
+    Serial.println(WiFi.localIP());
+    Serial.println("WiFi status:");
+    WiFi.printDiag(Serial); // 顯示WiFi連線狀態資訊：工作模式、Channel、SSID、Passphrase、BSSID
+    Serial.println("WiFi RSSI:");
+    Serial.println(WiFi.RSSI());
+  }
+  else
+    Serial.println("connection failed");
+
 }
 
 int sleeptime()
 {
   struct tm now = rtc.getTimeStruct();
   int nowt = now.tm_hour * 3600 + now.tm_min * 60 + now.tm_sec;
-  int t1 = TIME1 - nowt;
-  int t2 = TIME2 - nowt;
-  int t3 = TIME3 - nowt;
-  int t4 = TIME4 - nowt;
-  if (t1 < 0)
-  {
-    t1 = t1 + 86400;
-  }
-  if (t2 < 0)
-  {
-    t2 = t2 + 86400;
-  }
-  if (t3 < 0)
-  {
-    t3 = t3 + 86400;
-  }
-  if (t4 < 0)
-  {
-    t4 = t4 + 86400;
-  }
-  int tarray[4] = {t1, t2, t3, t4};
-  int minVal = tarray[0];
-  for (int i = 0; i < (sizeof(tarray) / sizeof(tarray[0])); i++)
-  {
-    minVal = min(tarray[i], minVal);
-  }
+  Serial.print("nowt : ");
+  Serial.println(nowt);
+  int tarray[sizeof(time_array)/sizeof(time_array[0])] = {};
+    for (int i = 0; i < (sizeof(time_array)/sizeof(time_array[0])); i++)
+    {
+        tarray[i] = time_array[i];
+    }
+    
+    for (int i = 0; i < (sizeof(tarray)/sizeof(tarray[0])); i++)
+    {
+        tarray[i] = tarray[i] - nowt;
+        if (tarray[i] < 0)
+        {
+            tarray[i] = tarray[i] + 86400;
+        }
+    }
+    int minVal = tarray[0];
+    for (int i = 0; i < (sizeof(tarray)/sizeof(tarray[0])); i++)
+    {
+        minVal = min(tarray[i], minVal);
+    }
   return minVal;
 }
 
@@ -197,7 +197,7 @@ void BMPreq()
 void NTPsync()
 {
   struct tm t;
-  configTime(9 * 3600L, 0, "time.stdtime.gov.tw", "time.google.com");
+  configTime(8 * 3600L, 0, "time.stdtime.gov.tw", "time.google.com");
   while (!getLocalTime(&t))
   {
     Serial.println("getLocalTime Error");
