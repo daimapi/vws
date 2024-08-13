@@ -1,4 +1,5 @@
 // UTF-8
+//esp32 board mngr 2.0.7 passed
 ////////////////////////////////////////////////////////environment setting
 #include <PMS.h>
 #include <Wire.h>
@@ -13,8 +14,8 @@ PMS::DATA data;
 Adafruit_BMP280 bmp;
 WiFiClient client;
 
-const char *ssid = "---";           // ssid:網路名稱
-const char *password = "---"; // pasword：網路密碼
+const char *ssid = "VIATOR!";           // ssid:網路名稱
+const char *password = ""; // pasword：網路密碼
 #define CHANNEL_ID 2544455
 #define CHANNEL_WRITE_API_KEY "3ZEDL3WPV2JS3NNN"
 const int time_array[] = {7200, 72000, 50400, 28800};
@@ -24,9 +25,10 @@ void connectwifi()
 {
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
+  Serial.println(WiFi.macAddress());
   Serial.println(String("Connecting to ") + ssid);
   delay(100);
-  WiFi.begin(ssid, password);
+  WiFi.begin(ssid);//, password);
   while (WiFi.status() != WL_CONNECTED)
   {
     delay(10);
@@ -115,12 +117,12 @@ void BMPreq()
     Serial.print(F("Temperature = "));
     Serial.print(bmp.readTemperature());
     Serial.println(" *C");
-    ThingSpeak.setField(5, round(bmp.readTemperature()));
+    ThingSpeak.setField(5, round(bmp.readTemperature()*10));
 
     Serial.print(F("Pressure = "));
     Serial.print(bmp.readPressure() / 100);
     Serial.println(" hPa");
-    ThingSpeak.setField(6, round(bmp.readPressure() / 100));
+    ThingSpeak.setField(6, round(bmp.readPressure() / 10));
     // Serial.print(F("Approx altitude = "));
     // Serial.print(bmp.readAltitude(1013.25)); /* Adjusted to local forecast! */
     // Serial.println(" m");
@@ -148,7 +150,10 @@ void NTPsync()
 
 void setup()
 {
+  pms.passiveMode();
   pinMode(2, OUTPUT);
+  pinMode(15, INPUT_PULLUP);
+  esp_sleep_enable_ext0_wakeup(GPIO_NUM_15,0);
   digitalWrite(2,LOW);
   Serial.begin(9600);
   Serial2.begin(9600); // for pms
@@ -158,46 +163,48 @@ void setup()
   Serial.print("hello world : ");
   Serial.println(wakeup_reason);
   Serial.println(esp_reset_reason());
-  pms.passiveMode();
-
-  unsigned status = bmp.begin(0x76);
-  {
-    Serial.println("bmp waking up");
-    if (!status)
-    {
-      Serial.println(F("Could not find a valid BMP280 sensor, check wiring or "
-                       "try a different address!"));
-      while (1)
-        delay(10);
-    }
-    else
-    {
-      Serial.println("bmp init pass");
-      bmp.setSampling(Adafruit_BMP280::MODE_FORCED,   /* Operating Mode. */
-                  Adafruit_BMP280::SAMPLING_X1,   /* Temp. oversampling */
-                  Adafruit_BMP280::SAMPLING_X1,   /* Pressure oversampling */
-                  Adafruit_BMP280::FILTER_OFF,    /* Filtering. */
-                  Adafruit_BMP280::STANDBY_MS_1); /* Standby time. */
-    }
-  }
-
+  Serial.print("batt (V) : ");
+  float batt = analogRead(34);
+  Serial.println(batt/2048*3.3);
+  
+  Serial.println("bmp waking up");
   pms.wakeUp();
+  int start_t = millis();
   Serial.println("pms waking up");
-  delay(30000);
-  Serial.println("pms init pass");
-
+  unsigned status = bmp.begin(0x76);
+  if (!status)
+  {
+    Serial.println(F("Could not find a valid BMP280 sensor, check wiring or "
+                      "try a different address!"));
+    while (1)
+      delay(10);
+  }
+  else
+  {
+    Serial.println("bmp init pass");
+    bmp.setSampling(Adafruit_BMP280::MODE_FORCED,   /* Operating Mode. */
+                Adafruit_BMP280::SAMPLING_X1,   /* Temp. oversampling */
+                Adafruit_BMP280::SAMPLING_X1,   /* Pressure oversampling */
+                Adafruit_BMP280::FILTER_OFF,    /* Filtering. */
+                Adafruit_BMP280::STANDBY_MS_1); /* Standby time. */
+  }
   connectwifi();
   ThingSpeak.begin(client);
+  int inter = millis()-start_t;
+  Serial.println(inter);
+  if (inter < 30000) delay(30000 - inter);
+  Serial.println("pms init pass");
+  
   Serial.println("start process");
   BMPreq();
   PMSreq();
-  ThingSpeak.setField(8, WiFi.RSSI());
+  ThingSpeak.setField(8, round(batt/2048*330));
   //ThingSpeak.writeFields(CHANNEL_ID, CHANNEL_WRITE_API_KEY);
-  if (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER)
+  if (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER || wakeup_reason == ESP_SLEEP_WAKEUP_EXT0)
   {
     ThingSpeak.writeFields(CHANNEL_ID, CHANNEL_WRITE_API_KEY);
     Serial.println("sent");
-    if (rtc.getHour(true) == 2)
+    if (rtc.getHour(true) == 2 || wakeup_reason == ESP_SLEEP_WAKEUP_EXT0)
       NTPsync(); // sync every 02:00
   }
   else
