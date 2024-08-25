@@ -8,35 +8,40 @@
 #include "ThingSpeak.h"
 #include "time.h"
 #include <ESP32Time.h>
+#include "token.h"
 ESP32Time rtc;
 PMS pms(Serial2);
 PMS::DATA data;
 Adafruit_BMP280 bmp;
 WiFiClient client;
 
-const char *ssid = "VIATOR!";           // ssid:網路名稱
-const char *password = ""; // pasword：網路密碼
-#define CHANNEL_ID 2544455
-#define CHANNEL_WRITE_API_KEY "3ZEDL3WPV2JS3NNN"
+
 const int time_array[] = {7200, 72000, 50400, 28800};
 //const int time_array[] = {6240};
 ///////////////////////////////////////////////////////
-void connectwifi()
-{
+void connectwifi() {
   WiFi.mode(WIFI_STA);
-  WiFi.disconnect();
-  Serial.println(WiFi.macAddress());
-  Serial.println(String("Connecting to ") + ssid);
   delay(100);
-  WiFi.begin(ssid);//, password);
-  while (WiFi.status() != WL_CONNECTED)
-  {
-    delay(10);
-    Serial.print(".");
+  while (WiFi.status() != WL_CONNECTED) {
+    WiFi.disconnect();
+    Serial.println(String("Connecting to ") + ssid);
+    if (pw == "") {
+      WiFi.begin(ssid);
+    } 
+    else {
+      WiFi.begin(ssid, pw);
+    }
+    int c = 0;
+    while (WiFi.status() != WL_CONNECTED && c < 2000) {
+      c += 1;
+      delay(10);
+      Serial.print(".");
+    }
   }
+  Serial.println("");
+  Serial.println(WiFi.macAddress());
   // how to sleep ???
-  if (WiFi.status() == WL_CONNECTED)
-  {
+  if (WiFi.status() == WL_CONNECTED) {
     Serial.print("\nIP address: ");
     Serial.println(WiFi.localIP());
     Serial.println("WiFi status:");
@@ -47,48 +52,40 @@ void connectwifi()
   }
   else
     Serial.println("connection failed");
-
 }
 
-int sleeptime()
-{
+int sleeptime() {
   struct tm now = rtc.getTimeStruct();
   int nowt = now.tm_hour * 3600 + now.tm_min * 60 + now.tm_sec;
   Serial.print("nowt : ");
   Serial.println(nowt);
   int tarray[sizeof(time_array)/sizeof(time_array[0])] = {};
-    for (int i = 0; i < (sizeof(time_array)/sizeof(time_array[0])); i++)
-    {
-        tarray[i] = time_array[i];
-    }
-    
-    for (int i = 0; i < (sizeof(tarray)/sizeof(tarray[0])); i++)
-    {
-        tarray[i] = tarray[i] - nowt;
-        if (tarray[i] < 0)
-        {
-            tarray[i] = tarray[i] + 86400;
-        }
-    }
-    int minVal = tarray[0];
-    for (int i = 0; i < (sizeof(tarray)/sizeof(tarray[0])); i++)
-    {
-        minVal = min(tarray[i], minVal);
-    }
+  for (int i = 0; i < (sizeof(time_array)/sizeof(time_array[0])); i++) {
+      tarray[i] = time_array[i];
+  }
+  
+  for (int i = 0; i < (sizeof(tarray)/sizeof(tarray[0])); i++) {
+      tarray[i] = tarray[i] - nowt;
+      if (tarray[i] < 0) {
+          tarray[i] = tarray[i] + 86400;
+      }
+  }
+  int minVal = tarray[0];
+  for (int i = 0; i < (sizeof(tarray)/sizeof(tarray[0])); i++) {
+      minVal = min(tarray[i], minVal);
+  }
   return minVal;
 }
 
-void PMSreq()
-{
+void PMSreq() {
   // pms.wakeUp();
 
   // delay(30000);
   pms.requestRead();
-  if (pms.readUntil(data))
-  {
+  if (pms.readUntil(data)) {
     Serial.print(F("HUM (%): "));
-    Serial.println(data.AMB_HUM / 10);
-    ThingSpeak.setField(4, data.AMB_HUM / 10);
+    Serial.println(float(data.AMB_HUM)/10);
+    ThingSpeak.setField(4, data.AMB_HUM);
 
     Serial.print(F("PM 1.0 (ug/m^3): "));
     Serial.println(data.PM_AE_UG_1_0);
@@ -102,18 +99,16 @@ void PMSreq()
     Serial.println(data.PM_AE_UG_10_0);
     ThingSpeak.setField(3, data.PM_AE_UG_10_0);
 
-    Serial.print(F("HCHO (mg/m^3): "));
-    Serial.println(data.AMB_HCHO);
-    ThingSpeak.setField(7, data.AMB_HCHO);
+    //Serial.print(F("HCHO (mg/m^3): "));
+    //Serial.println(data.AMB_HCHO);
+    //ThingSpeak.setField(7, data.AMB_HCHO);
   }
   delay(1000);
   pms.sleep();
 }
 
-void BMPreq()
-{
-  if (bmp.takeForcedMeasurement())
-  {
+void BMPreq() {
+  if (bmp.takeForcedMeasurement()) {
     Serial.print(F("Temperature = "));
     Serial.print(bmp.readTemperature());
     Serial.println(" *C");
@@ -127,18 +122,15 @@ void BMPreq()
     // Serial.print(bmp.readAltitude(1013.25)); /* Adjusted to local forecast! */
     // Serial.println(" m");
   }
-  else
-  {
+  else {
     Serial.println("Forced measurement failed!");
   }
 }
 
-void NTPsync()
-{
+void NTPsync() {
   struct tm t;
   configTime(8 * 3600L, 0, "time.stdtime.gov.tw", "time.google.com");
-  while (!getLocalTime(&t))
-  {
+  while (!getLocalTime(&t)) {
     Serial.println("getLocalTime Error");
     delay(500);
   }
@@ -148,8 +140,7 @@ void NTPsync()
   Serial.println(&t, "%A, %B %d %Y %H:%M:%S");
 }
 
-void setup()
-{
+void setup() {
   pms.passiveMode();
   pinMode(2, OUTPUT);
   pinMode(15, INPUT_PULLUP);
@@ -172,15 +163,13 @@ void setup()
   int start_t = millis();
   Serial.println("pms waking up");
   unsigned status = bmp.begin(0x76);
-  if (!status)
-  {
+  if (!status) {
     Serial.println(F("Could not find a valid BMP280 sensor, check wiring or "
                       "try a different address!"));
     while (1)
       delay(10);
   }
-  else
-  {
+  else {
     Serial.println("bmp init pass");
     bmp.setSampling(Adafruit_BMP280::MODE_FORCED,   /* Operating Mode. */
                 Adafruit_BMP280::SAMPLING_X1,   /* Temp. oversampling */
@@ -198,23 +187,24 @@ void setup()
   Serial.println("start process");
   BMPreq();
   PMSreq();
-  ThingSpeak.setField(8, round(batt/2048*330));
+  ThingSpeak.setField(7, round(batt/2048*330));
   //ThingSpeak.writeFields(CHANNEL_ID, CHANNEL_WRITE_API_KEY);
-  if (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER || wakeup_reason == ESP_SLEEP_WAKEUP_EXT0)
-  {
+  
+  struct tm nowt = rtc.getTimeStruct();
+  Serial.println(&nowt, "%A, %B %d %Y %H:%M:%S");
+  if (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER || wakeup_reason == ESP_SLEEP_WAKEUP_EXT0) {
     ThingSpeak.writeFields(CHANNEL_ID, CHANNEL_WRITE_API_KEY);
     Serial.println("sent");
-    if (rtc.getHour(true) == 2 || wakeup_reason == ESP_SLEEP_WAKEUP_EXT0)
-      NTPsync(); // sync every 02:00
+    if (rtc.getHour(true) == 2 || wakeup_reason == ESP_SLEEP_WAKEUP_EXT0) NTPsync(); // sync every 02:00 (also ntpsync while ext isnt essential)
+    else rtc.setTime(rtc.getEpoch() + 8*3600ULL);
   }
-  else
-  {
-    NTPsync();
+  else {
+    NTPsync(); //hardware reset( cpu + rtc )
   }
-
+  
   Serial.println("end process");
   int sleep_time = sleeptime();
-  if (sleep_time == 0){
+  if (sleep_time == 0) {
     sleep_time++;
   }
   Serial.print("byebye for : ");
@@ -225,6 +215,4 @@ void setup()
   //ESP.deepSleep(sleep_time * 1000000);
 }
 
-void loop()
-{
-}
+void loop() {}
