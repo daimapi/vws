@@ -17,26 +17,29 @@ WiFiClient client;
 
 
 const int time_array[] = {7200, 72000, 50400, 28800};
+int c = 0;
 //const int time_array[] = {6240};
 ///////////////////////////////////////////////////////
 void connectwifi() {
   WiFi.mode(WIFI_STA);
   delay(100);
-  while (WiFi.status() != WL_CONNECTED) {
+  while (WiFi.status() != WL_CONNECTED && c < 2000) {
     WiFi.disconnect();
     Serial.println(String("Connecting to ") + ssid);
+    c += 1;
     if (pw == "") {
       WiFi.begin(ssid);
     } 
     else {
       WiFi.begin(ssid, pw);
     }
-    int c = 0;
-    while (WiFi.status() != WL_CONNECTED && c < 2000) {
+    while (WiFi.status() != WL_CONNECTED && c % 100 != 0 ){
       c += 1;
-      delay(10);
+      delay(100);
       Serial.print(".");
     }
+    Serial.print(c/10);
+    Serial.println("");
   }
   Serial.println("");
   Serial.println(WiFi.macAddress());
@@ -192,16 +195,24 @@ void setup() {
   
   struct tm nowt = rtc.getTimeStruct();
   Serial.println(&nowt, "%A, %B %d %Y %H:%M:%S");
-  if (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER || wakeup_reason == ESP_SLEEP_WAKEUP_EXT0) {
+  Serial.println(rtc.offset);
+  if ((wakeup_reason == ESP_SLEEP_WAKEUP_TIMER || wakeup_reason == ESP_SLEEP_WAKEUP_EXT0) && c < 2000) {
     ThingSpeak.writeFields(CHANNEL_ID, CHANNEL_WRITE_API_KEY);
     Serial.println("sent");
-    if (rtc.getHour(true) == 2 || wakeup_reason == ESP_SLEEP_WAKEUP_EXT0) NTPsync(); // sync every 02:00 (also ntpsync while ext isnt essential)
-    else rtc.setTime(rtc.getEpoch() + 8*3600ULL);
+    if (rtc.getHour(true) == 2|| rtc.getHour(true) == 1 || wakeup_reason == ESP_SLEEP_WAKEUP_EXT0)
+      NTPsync(); // sync every 02:00 (also ntpsync while ext isnt essential)
+    else rtc.offset = 8*3600L;
+    //rtc.setTime(rtc.getEpoch() + 8*3600L);
   }
-  else {
+  else if (c < 2000){
     NTPsync(); //hardware reset( cpu + rtc )
   }
-  
+  else {
+    Serial.println("unable to connect");
+  }
+  nowt = rtc.getTimeStruct();
+  Serial.println(&nowt, "%A, %B %d %Y %H:%M:%S");
+  Serial.println(rtc.offset);
   Serial.println("end process");
   int sleep_time = sleeptime();
   if (sleep_time == 0) {
@@ -211,6 +222,7 @@ void setup() {
   Serial.println(sleep_time);
   Serial.flush(); 
   esp_sleep_enable_timer_wakeup(sleep_time * 1000000ULL);
+  //esp_sleep_enable_timer_wakeup(60 * 1000000ULL);
   esp_deep_sleep_start();
   //ESP.deepSleep(sleep_time * 1000000);
 }
